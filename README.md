@@ -12,4 +12,10 @@ install.packages("devtools")
 devtools::install_github("eltownes/CryptoR")
 
 
+### Usage
+library(CryptoR)  
+?CryptoR  
 
+
+### Vignette @
+"CryptoR > Vignettes > CryptoR.Rmd"  
