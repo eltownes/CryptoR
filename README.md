@@ -19,5 +19,5 @@ library(CryptoR)
 ?CryptoR  
 
 
-### Vignette @
-"CryptoR > Vignettes > CryptoR.Rmd"  
+### Vignette @ path
+"CryptoR > vignettes > CryptoR.Rmd"  
