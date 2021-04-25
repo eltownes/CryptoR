@@ -4,7 +4,7 @@ An interface to the CoinGecko cryptocurrency API
 
 ### Vignette
 Last build html vignette:
-https://github.com/eltownes/CryptoR/blob/main/CryptoR.mhtml
+https://github.com/eltownes/CryptoR/CryptoR.pdf
 
 
 ### Installation
