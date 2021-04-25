@@ -1,0 +1,34 @@
+Package: CryptoR
+Title: Cryptocurrency Data From CoinGeckco
+Version: 0.0.0.9000
+Authors@R: 
+    person(given = "Eric",
+           family = "Townes",
+           role = c("aut", "cre"),
+           email = "erict@mail.usf.edu",
+           comment = c(ORCID = "YOUR-ORCID-ID"))
+Description: The package will access the CoinGecko API V3 which is free and
+    does not require an API key. The CoinGecko API can be found at
+    https://www.coingecko.com/en/api. Ths information is current as of
+    April 2021.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.1
+Imports: 
+    dplyr,
+    ggplot2,
+    httr,
+    jsonlite,
+    lubridate,
+    purrr,
+    tibble,
+    tidyr,
+    utils
+Depends: 
+    R (>= 2.10)
+Suggests: 
+    rmarkdown,
+    knitr
+VignetteBuilder: knitr
