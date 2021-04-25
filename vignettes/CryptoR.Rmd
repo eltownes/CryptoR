@@ -272,13 +272,13 @@ worstPerform <- dplyr::slice_min(coins[-2], n=10, order_by=slope)
 The top performers:
 
 ```{r }
-topPerform
+topPerform[-2]
 ```
 
 and the worst performers:
 
 ```{r }
-dplyr::arrange(worstPerform, desc(-slope) )
+dplyr::arrange(worstPerform[-2], desc(-slope) )
 ```
 
 ### (4) What's the overall crypto market pulse?
