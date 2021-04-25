@@ -1,0 +1,354 @@
+---
+title: "CryptoR"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{CryptoR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 6,
+  out.width = "90%"
+)
+```
+
+```{r setup}
+library(CryptoR)
+```
+
+### Introduction
+
+An interface to the CoinGecko cryptocurrency API. <br><br>
+
+<left>
+![CoinGecko](CoinGecko.png)
+</left>
+<br>
+
+Main site: https://www.coingecko.com/en  
+API site: https://www.coingecko.com/en/api  
+V3 API documentation: https://www.coingecko.com/api/documentations/v3  
+
+CoinGecko API benefits as of April 2021:
+
+* 100% free crypto API
+* No keys required
+* Publicly available
+
+Notes:
+
+* Rate limit: 100 requests/minute
+* Time stamps returned are UTC
+
+
+### Overview
+
+<left>
+![cg_get_ping](cg_overview.png)
+</left>
+<br>
+
+### API Connection
+
+Let's first check the API connection to CoinGecko using `cg_get_ping()`.  
+
+This should return: (screenshot)
+
+<left>
+![cg_get_ping](cg_get_ping_result.png)
+</left>
+<br>
+
+```{r }
+cg_get_ping()
+```
+
+With a verified connection we can answer some questions.
+
+
+### (1) What's the broad crypto market like?
+
+We can request a snapshot of the cryptocurrency market via `cg_get_global()`:
+
+```{r }
+global <- cg_get_global()
+dateTime <- lubridate::now("UTC")
+```
+
+The object called `global` contains: (screenshot)
+
+<left>
+![global](global.png)
+</left>
+<br><br>
+
+Let's do a quick plot of the `market_cap_percentage` - it will be the top
+10 cryptocurrencies ranked by market capitalization percentage.
+
+```{r }
+# pull out the data
+mcp1 <- tibble::as_tibble(global$data$market_cap_percentage)
+mcp1 <- tidyr::pivot_longer(mcp1, everything(), names_to="symbol", 
+                            values_to="perc")
+
+# build the plot
+ggplot2::ggplot(mcp1, ggplot2::aes(x=reorder(symbol, -perc), y=perc) ) +
+  ggplot2::geom_col() +
+  ggplot2::labs(title=paste0("Top 10 by Market Cap % as of ", 
+                             dateTime, " UTC"), x="")
+# format percentage sum
+topTenPerc <- round( sum(mcp1$perc), 2)
+```
+
+We see that the **top 10** cryptocurrencies account for **`r topTenPerc`** % of the crypto market.
+
+
+### (2) How is the market capitalization distributed?
+
+```{r }
+activeCurrencies <- global$data$active_cryptocurrencies
+```
+
+CoinGecko tracks a lot of cryptocurrencies: **`r activeCurrencies` coins** in total. We can call the function `cg_get_coins_markets(...)` to get supported coins price, market capitalization, volume, and market related data - over 20 data points.
+
+There are 8 parameters and CoinGecko in this instance puts a request limit
+to 1 page with a maximum of 250 coins or symbols on the page.
+
+`cg_get_coins_markets(...)` (screenshot)
+
+<left>
+![global](cg_get_coins_markets.png)
+</left>
+<br>
+
+We will not request the data for all currencies - just the **first 1000** 
+symbols. We'll have to use a custom function - `cg_coins_df(...)` - it's basically a wrapper for `cg_get_coins_markets(...)`. The function `cg_coins_df(...)` uses a loop to build a custom sized data frame.
+
+```{r }
+customDF <- cg_coins_df(per_page = 50, pages = 5)
+```
+
+A quick glimpse will see if we received 1000 ordered symbols and also
+which variable names are available for analysis.
+
+```{r }
+dplyr::glimpse(customDF)
+```
+Let's look at the five-number summary for market cap in millions of dollars.
+
+```{r }
+summary(customDF$market_cap / 10^6)
+```
+We can see that the data is heavily skewed. Most people may realize that the
+market is dominated by a few names. So, we will log transform in order
+to see a clearer boxplot - again in millions of dollars.
+
+```{r }
+# plot building
+ggplot2::ggplot(customDF, ggplot2::aes(x=market_cap / 10^6) ) +
+  ggplot2::geom_boxplot() +
+  ggplot2::scale_x_continuous(trans='log2') +
+  ggplot2::theme(axis.title.x=ggplot2::element_blank(),
+                 axis.text.y=ggplot2::element_blank(),
+                 axis.ticks.y=ggplot2::element_blank()) +
+  ggplot2::labs(title=paste0("Market Cap Distro in Millions as of ",
+                             dateTime, " UTC") )
+```
+
+### (3) What about individual coin performance?
+
+Our custom data frame `customDF` includes a variable called `sparkline_in_7d` 
+which provides 7 days of hourly price information or 168 data points. For 
+example, a 7-day sparkline looks like this:
+
+```{r }
+# pull out the sparkline data
+coin <- dplyr::filter(customDF, name == "Bitcoin")
+sparkLine <- tibble::tibble( price = unlist(coin$sparkline_in_7d) )
+sparkLine <- tibble::rowid_to_column(sparkLine, "hours")
+
+# build the plot
+ggplot2::ggplot(sparkLine, ggplot2::aes(x=hours, y=price ) ) +
+  ggplot2::geom_line() +
+  ggplot2::theme_classic() +
+  ggplot2::labs(title=paste0(coin$name, " 7-day Chart as of ",
+                             dateTime, " UTC") )
+```
+
+The `sparkline_in_7d` variable allows us to do some unique charting and 
+analysis. We can create a linear model for each symbol's price and then extract 
+the slope to give us a rough idea of the 7-day trend.  
+
+We can use `apply` on each row of the tibble and send data to the 
+`price_model()` function for model creation and slope extraction.
+
+```{r }
+# function def and returning just the slope
+price_model <- function(df){
+  sparkLine <- tibble::tibble( price = unlist(df$sparkline_in_7d) )
+  sparkLine <- tibble::rowid_to_column(sparkLine, "hours")
+  fit <- lm( price ~ hours, data = sparkLine )
+  return(fit$coefficients[2])
+}
+
+# for each data frame row, get the sparkline's lm model
+coins <- dplyr::select(customDF, c(name,sparkline_in_7d) )
+coins <- dplyr::mutate(coins, slope = apply( coins, 1, price_model ) )
+```
+
+Let's look at some of the extracted slope data.
+
+```{r }
+head(coins[-2])
+```
+
+We can now plot the slopes on a single chart starting from a common point - 
+intercept at 0 (zero).
+
+```{r }
+# for the chart's y-axis boundaries
+avg <- mean(coins$slope)
+stdDev <- sd(coins$slope)
+upperY <- avg+stdDev*2
+lowerY <- avg-stdDev*2
+
+slopeGraph <- ggplot2::ggplot() +
+  ggplot2::xlim(0, 7) + 
+  ggplot2::ylim(lowerY, upperY) +
+  ggplot2::geom_abline( intercept = 0, slope = coins$slope,
+                        color = ifelse(coins$slope<0,"red","chartreuse2") )
+
+# finalize the graph's presentation
+posNums <- sum( coins$slope > 0 )
+negNums <- sum( coins$slope < 0 )
+slopeGraph <- slopeGraph +
+  ggplot2::annotate(geom="text", x=6, y=upperY*.75, label=posNums,
+                    color="darkgreen") +
+  ggplot2::annotate(geom="text", x=6, y=lowerY*.75, label=negNums, 
+                    color="red") +
+  ggplot2::ggtitle( paste0("Absolute Coin Performance as of ",
+                           dateTime, " UTC") )
+
+# display it
+slopeGraph
+```
+
+The graph shows how many coins are up or down on the weekly trend using the
+`lm` or linear model function.
+
+Let's get the names of the top and bottom 10 cryptocurrencies for the 
+past week.
+
+```{r }
+topPerform <- dplyr::slice_max(coins[-2], n=10, order_by=slope)
+worstPerform <- dplyr::slice_min(coins[-2], n=10, order_by=slope)
+```
+
+The top performers:
+
+```{r }
+topPerform
+```
+
+and the worst performers:
+
+```{r }
+dplyr::arrange(worstPerform, desc(-slope) )
+```
+
+### (4) What's the overall crypto market pulse?
+
+The previous discussion was about absolute performance of individual coins.
+Here we'll consider the relative performance.
+
+Again, we'll use the coins' or symbols' slope measurement but weigh it by
+market capitalization. We can then get a sense of the market cap weighted 
+direction of the coins.
+
+```{r }
+# pull out "market cap" data and add it to another using join
+marketCapDf <- dplyr::select(customDF, name, market_cap)
+coinsWeighting <- dplyr::left_join(coins, marketCapDf, by = "name")
+
+# calculate the slope weighting
+marketCapSum <- sum(coinsWeighting$market_cap)
+coinsWeighting <- dplyr::mutate(coinsWeighting,
+                  slopeWeighted = (market_cap/marketCapSum)*slope )
+
+# the market's overall weighted slope
+slopeAll <- sum(coinsWeighting$slopeWeighted)
+
+# what follows - just like above for slopeGraph
+# maybe a separate function is better but for now...
+
+# y-axis limits
+avg <- mean(coinsWeighting$slopeWeighted)
+stdDev <- sd(coinsWeighting$slopeWeighted)
+upperY <- avg+stdDev*2
+lowerY <- avg-stdDev*2
+
+slopeGraph2 <- ggplot2::ggplot() +
+  ggplot2::xlim(0, 7) + 
+  ggplot2::ylim(lowerY, upperY) +
+  ggplot2::geom_abline( intercept = 0, slope = coinsWeighting$slope,
+                  color = ifelse(coinsWeighting$slope<0,"red","chartreuse2") )
+
+# prettify the graph
+posNums <- sum( coinsWeighting$slopeWeighted > 0 )
+negNums <- sum( coinsWeighting$slopeWeighted < 0 )
+slopeGraph2 <- slopeGraph2 +
+  ggplot2::annotate(geom="text", x=6, y=upperY*.75, label=posNums,
+                    color="darkgreen") +
+  ggplot2::annotate(geom="text", x=6, y=lowerY*.75, label=negNums, 
+                    color="red") +
+  ggplot2::ggtitle(paste0("Relative Coin Performance as of ",
+                          dateTime, " UTC") )
+
+# add the overall market slope
+slopeGraph2 <- slopeGraph2 + 
+  ggplot2::geom_abline(intercept = 0, slope = slopeAll, size = 1,
+                         linetype = "dashed", color="black")
+
+# display it
+slopeGraph2
+```
+
+The dashed black line gives the market cap weighted 
+direction of the overall market - or in this case, considering the top 
+1000 cryptos.
+
+Lastly, let's look at the 10 cryptocurrencies which 
+**by weighted market cap slopes** are affecting the market the greatest. This 
+could be **upwards or downwards** pressure! Here we'll just look at the 
+absolute values of weighted slopes.
+
+The top 10 are:
+
+```{r }
+coinsWeighting <- dplyr::mutate(coinsWeighting, absVal = abs(slopeWeighted) )
+coinsWeighting <- dplyr::arrange(coinsWeighting, by=-absVal)
+dplyr::top_n(coinsWeighting[-2:-5], 10, absVal)
+```
+
+### Closing
+
+This was a brief introduction into some cyrpto market analysis using the
+CryptoR package.
+
+<left>
+![cg_get_ping](cg_overview2.png)
+</left>
+<br>
+
+The CoinGecko API exposes much more than what has been implemented here.
+
+But the previously created data frame `customDF` pulls in plenty of data from 
+which further charting, exploring, and analysis can be done.
+
+
+**************************
+
