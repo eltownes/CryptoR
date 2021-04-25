@@ -1,6 +1,6 @@
 # CryptoR
 An interface to the CoinGecko cryptocurrency API.
-![CoinGecko](CoinGecko.png)
+![CoinGecko](vignettes/CoinGecko.png)
 
 
 ### Vignette
