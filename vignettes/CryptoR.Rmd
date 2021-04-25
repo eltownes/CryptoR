@@ -129,7 +129,7 @@ We will not request the data for all currencies - just the **first 1000**
 symbols. We'll have to use a custom function - `cg_coins_df(...)` - it's basically a wrapper for `cg_get_coins_markets(...)`. The function `cg_coins_df(...)` uses a loop to build a custom sized data frame.
 
 ```{r }
-customDF <- cg_coins_df(per_page = 50, pages = 5)
+customDF <- cg_coins_df(per_page = 250, pages = 4)
 ```
 
 A quick glimpse will see if we received 1000 ordered symbols and also
@@ -179,11 +179,32 @@ ggplot2::ggplot(sparkLine, ggplot2::aes(x=hours, y=price ) ) +
                              dateTime, " UTC") )
 ```
 
+
 The `sparkline_in_7d` variable allows us to do some unique charting and 
-analysis. We can create a linear model for each symbol's price and then extract 
+analysis. We can create a **linear model for each symbol** and then extract 
 the slope to give us a rough idea of the 7-day trend.  
 
-We can use `apply` on each row of the tibble and send data to the 
+First we need to check for valid `sparkline_in_7d` data. CoinGecko can at
+times return `numeric(0)` for a symbol which is specifically annoying. We'll 
+also check whether a symbol has enough data points; in this case a 
+minimum of 6 days of hourly data.
+
+```{r }
+# function def
+sparkLen <- function(df){
+  return( length(unlist(df$sparkline_in_7d)) )
+}
+
+# filter columns and check sparkline data
+coins <- dplyr::select(customDF, c(name,sparkline_in_7d) )
+coins <- dplyr::mutate(coins, len = apply(coins, 1, sparkLen) )
+coins <- dplyr::filter(coins, len > 24*6)
+lenMod <- nrow(coins)
+```
+
+After filtering the symbol count is now **`r lenMod`**.
+
+We can now use `apply` on each row of the tibble and send data to the 
 `price_model()` function for model creation and slope extraction.
 
 ```{r }
@@ -196,14 +217,13 @@ price_model <- function(df){
 }
 
 # for each data frame row, get the sparkline's lm model
-coins <- dplyr::select(customDF, c(name,sparkline_in_7d) )
 coins <- dplyr::mutate(coins, slope = apply( coins, 1, price_model ) )
 ```
 
 Let's look at some of the extracted slope data.
 
 ```{r }
-head(coins[-2])
+head(coins[-2:-3] )
 ```
 
 We can now plot the slopes on a single chart starting from a common point - 
@@ -220,6 +240,7 @@ slopeGraph <- ggplot2::ggplot() +
   ggplot2::xlim(0, 7) + 
   ggplot2::ylim(lowerY, upperY) +
   ggplot2::geom_abline( intercept = 0, slope = coins$slope,
+                        linetype = "dotted",
                         color = ifelse(coins$slope<0,"red","chartreuse2") )
 
 # finalize the graph's presentation
@@ -227,9 +248,9 @@ posNums <- sum( coins$slope > 0 )
 negNums <- sum( coins$slope < 0 )
 slopeGraph <- slopeGraph +
   ggplot2::annotate(geom="text", x=6, y=upperY*.75, label=posNums,
-                    color="darkgreen") +
+                    color="black") +
   ggplot2::annotate(geom="text", x=6, y=lowerY*.75, label=negNums, 
-                    color="red") +
+                    color="black") +
   ggplot2::ggtitle( paste0("Absolute Coin Performance as of ",
                            dateTime, " UTC") )
 
@@ -265,9 +286,9 @@ dplyr::arrange(worstPerform, desc(-slope) )
 The previous discussion was about absolute performance of individual coins.
 Here we'll consider the relative performance.
 
-Again, we'll use the coins' or symbols' slope measurement but weigh it by
-market capitalization. We can then get a sense of the market cap weighted 
-direction of the coins.
+Again, we'll use the coins' or symbols' slope measurement but weigh it 
+**by market capitalization.** We can then get a sense of the 
+market cap weighted direction of the coins.
 
 ```{r }
 # pull out "market cap" data and add it to another using join
@@ -295,6 +316,7 @@ slopeGraph2 <- ggplot2::ggplot() +
   ggplot2::xlim(0, 7) + 
   ggplot2::ylim(lowerY, upperY) +
   ggplot2::geom_abline( intercept = 0, slope = coinsWeighting$slope,
+                  linetype = "dotted",
                   color = ifelse(coinsWeighting$slope<0,"red","chartreuse2") )
 
 # prettify the graph
@@ -302,9 +324,9 @@ posNums <- sum( coinsWeighting$slopeWeighted > 0 )
 negNums <- sum( coinsWeighting$slopeWeighted < 0 )
 slopeGraph2 <- slopeGraph2 +
   ggplot2::annotate(geom="text", x=6, y=upperY*.75, label=posNums,
-                    color="darkgreen") +
+                    color="black") +
   ggplot2::annotate(geom="text", x=6, y=lowerY*.75, label=negNums, 
-                    color="red") +
+                    color="black") +
   ggplot2::ggtitle(paste0("Relative Coin Performance as of ",
                           dateTime, " UTC") )
 
@@ -317,21 +339,21 @@ slopeGraph2 <- slopeGraph2 +
 slopeGraph2
 ```
 
-The dashed black line gives the market cap weighted 
+The **dashed black line** gives the market cap weighted 
 direction of the overall market - or in this case, considering the top 
-1000 cryptos.
+`r lenMod` cryptos. Slope value equals **`r slopeAll`**.
 
-Lastly, let's look at the 10 cryptocurrencies which 
-**by weighted market cap slopes** are affecting the market the greatest. This 
-could be **upwards or downwards** pressure! Here we'll just look at the 
-absolute values of weighted slopes.
+Lastly, let's look at the 10 cryptocurrencies whose 
+**slopes by weighted market cap** are affecting the market the 
+greatest. This could be **upwards or downwards** pressure! 
+Here we'll just look at the absolute values of weighted slopes.
 
 The top 10 are:
 
 ```{r }
 coinsWeighting <- dplyr::mutate(coinsWeighting, absVal = abs(slopeWeighted) )
 coinsWeighting <- dplyr::arrange(coinsWeighting, by=-absVal)
-dplyr::top_n(coinsWeighting[-2:-5], 10, absVal)
+dplyr::slice_max(coinsWeighting[-2:-6], n=10, order_by=absVal)
 ```
 
 ### Closing
