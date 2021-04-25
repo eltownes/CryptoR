@@ -8,7 +8,7 @@ https://github.com/eltownes/CryptoR/blob/main/CryptoR_Vignette.pdf
 
 
 ### Installation
-install.packages("devtools")
+install.packages("devtools")  
 devtools::install_github("eltownes/CryptoR")
 
 
